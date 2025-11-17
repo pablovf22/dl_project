@@ -55,4 +55,3 @@ Here are some great resources:
 - Tune hyperparameters (especially learning rate, layers, and hidden units)
 - Use advanced regularization techniques such as https://openreview.net/forum?id=xkljKdGe4E#discussion
 - You can try changing the generated features of the dataloader
-
