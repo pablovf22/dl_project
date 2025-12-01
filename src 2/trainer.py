@@ -81,6 +81,32 @@ class SupervisedEnsemble:
             self.logger.log_dict(summary_dict, step=epoch)
 
 
+    def test(self, step: int | None = None):
+        """Evalúa el ensemble en el test set y lo registra en W&B."""
+        for model in self.models:
+            model.eval()
+
+        test_losses = []
+
+        with torch.no_grad():
+            for x, targets in self.test_dataloader:
+                x, targets = x.to(self.device), targets.to(self.device)
+
+                preds = [model(x) for model in self.models]
+                avg_preds = torch.stack(preds).mean(0)
+
+                loss = torch.nn.functional.mse_loss(avg_preds, targets)
+                test_losses.append(loss.item())
+
+        test_loss = float(np.mean(test_losses))
+        metrics = {"test_MSE": test_loss}
+
+        # Esto crea el punto de test_MSE en W&B
+        self.logger.log_dict(metrics, step=step)
+
+        return metrics
+
+
 class CPSEnsemble:
     def __init__(
         self,
@@ -206,3 +232,30 @@ class CPSEnsemble:
                 pbar.set_postfix(summary)
 
             self.logger.log_dict(summary, step=epoch)
+
+    
+    def test(self, step: int | None = None):
+       
+        for model in self.models:
+            model.eval()
+
+        test_losses = []
+
+        with torch.no_grad():
+            for x, targets in self.test_loader:
+                x, targets = x.to(self.device), targets.to(self.device)
+
+                # Prediction of the ensemble
+                preds = [model(x) for model in self.models]
+                avg_preds = torch.stack(preds).mean(0)
+
+                loss = torch.nn.functional.mse_loss(avg_preds, targets)
+                test_losses.append(loss.item())
+
+        test_loss = float(np.mean(test_losses))
+        metrics = {"test_MSE": test_loss}
+
+        # Result to W&B
+        self.logger.log_dict(metrics, step=step)
+
+        return metrics
