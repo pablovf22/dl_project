@@ -56,8 +56,8 @@ class WandBLogger:
         if not self.disable:
             return self.run.id
         else:
-            return None
-
+            return None    
+            
     def log(self, key, value, step=None):
         """
         Logs a scalar with name key.

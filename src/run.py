@@ -38,6 +38,7 @@ def main(cfg):
 
     results = trainer.train(**cfg.trainer.train)
     results = torch.Tensor(results)
+   
 
 
 
