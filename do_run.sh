@@ -8,13 +8,12 @@
 #BSUB -o logs/SGD_momentum_Nesterov_%J.out
 #BSUB -e logs/SGD_momentum_Nesterov_%J.err
 
-# Activa tu entorno
+# Activate environment
 source /dtu/blackhole/0b/213963/venvs/dl_project/bin/activate
 
-# Asegúrate de estar en el directorio del proyecto
+# Access the project directory
 cd /dtu/blackhole/0b/213963/dl_project/gnn_intro
 
-# Asegúrate de que Hydra guarde cada run en un directorio único
 export HYDRA_FULL_ERROR=1
 
 python src/run.py logger.name="GIN" 

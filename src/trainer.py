@@ -82,7 +82,7 @@ class SupervisedEnsemble:
 
 
     def test(self, step: int | None = None):
-        """Evalúa el ensemble en el test set y lo registra en W&B."""
+        
         for model in self.models:
             model.eval()
 
@@ -101,7 +101,6 @@ class SupervisedEnsemble:
         test_loss = float(np.mean(test_losses))
         metrics = {"test_MSE": test_loss}
 
-        # Esto crea el punto de test_MSE en W&B
         self.logger.log_dict(metrics, step=step)
 
         return metrics
