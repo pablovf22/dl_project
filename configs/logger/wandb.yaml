@@ -1,0 +1,11 @@
+defaults:
+  - _self_
+
+_target_: logger.WandBLogger
+group: ${dataset.dataset_name} # Name of the group for wandb
+name: ${model.name}_seed=${seed} # Name of the run for wandb
+job_type: test
+entity: pabloyvivero-danmarks-tekniske-universitet-dtu
+project_name: gnn_intro
+disable: false
+local_dir: ./logs #Directory to save logsx
