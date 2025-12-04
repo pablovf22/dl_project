@@ -16,4 +16,4 @@ cd /dtu/blackhole/0b/213963/dl_project/gnn_intro
 
 export HYDRA_FULL_ERROR=1
 
-python src/run.py logger.name="GIN" 
+python src/run.py logger.name="prueba" 
