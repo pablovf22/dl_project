@@ -116,6 +116,6 @@ dmypy.json
 .pyre/
 
 # Project specific
-data/
 logs/
 outputs/
+data/

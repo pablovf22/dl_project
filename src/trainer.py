@@ -258,3 +258,202 @@ class CPSEnsemble:
         self.logger.log_dict(metrics, step=step)
 
         return metrics
+
+
+class MeanTeacher:
+    """
+    Semi-supervised training using the Mean Teacher algorithm.
+
+    - The student model is trained normally via gradient descent.
+    - The teacher model is an exponential moving average (EMA) of the student.
+    - L_total = L_supervised + lambda * L_consistency,
+      where L_consistency encourages student predictions to match the teacher
+      on unlabeled data.
+    """
+
+    def __init__(
+        self,
+        supervised_criterion,
+        unsupervised_weight,
+        ema_decay,
+        optimizer,
+        scheduler,
+        device,
+        models,
+        logger,
+        datamodule,
+    ):
+        self.device = device
+        self.supervised_criterion = supervised_criterion
+        self.unsupervised_weight = unsupervised_weight
+        self.ema_decay = ema_decay
+        self.logger = logger
+
+        # Expect exactly one model: the student
+        if len(models) != 1:
+            raise RuntimeError(
+                f"MeanTeacher expects exactly 1 model, but received {len(models)}."
+            )
+
+        self.student = models[0].to(self.device)
+
+        # Create the teacher as a frozen EMA copy of the student
+        self.teacher = deepcopy(self.student).to(self.device)
+        for p in self.teacher.parameters():
+            p.requires_grad = False
+
+        # Optimizer and scheduler operate ONLY on the student
+        self.optimizer = optimizer(params=list(self.student.parameters()))
+        self.scheduler = scheduler(optimizer=self.optimizer)
+
+        # Data loaders: labeled, unlabeled, validation and test
+        self.sup_loader = datamodule.train_dataloader()
+        self.unsup_loader = datamodule.unsupervised_train_dataloader()
+        self.val_loader = datamodule.val_dataloader()
+        self.test_loader = datamodule.test_dataloader()
+
+    # ---------------------------------------------------------
+    # EMA update for the teacher
+    # ---------------------------------------------------------
+    def _ema_update_teacher(self):
+        """Update teacher parameters as an exponential moving average of the student."""
+        with torch.no_grad():
+            for p_teacher, p_student in zip(self.teacher.parameters(),
+                                            self.student.parameters()):
+                p_teacher.data.mul_(self.ema_decay).add_(
+                    p_student.data, alpha=1.0 - self.ema_decay
+                )
+
+    # ---------------------------------------------------------
+    # VALIDATION
+    # ---------------------------------------------------------
+    def validate(self):
+        """Evaluate validation MSE using the teacher model."""
+        self.teacher.eval()
+
+        losses = []
+        with torch.no_grad():
+            for x, targets in self.val_loader:
+                x, targets = x.to(self.device), targets.to(self.device)
+                preds = self.teacher(x)
+                loss = torch.nn.functional.mse_loss(preds, targets)
+                losses.append(loss.item())
+
+        val_loss = float(np.mean(losses))
+        return {"val_MSE": val_loss}
+
+    # ---------------------------------------------------------
+    # TEST
+    # ---------------------------------------------------------
+    def test(self, step=None):
+        """
+        Evaluate test MSE using the teacher model.
+        Logged to W&B as 'test_MSE'.
+        """
+        self.teacher.eval()
+
+        losses = []
+        with torch.no_grad():
+            for x, targets in self.test_loader:
+                x, targets = x.to(self.device), targets.to(self.device)
+                preds = self.teacher(x)
+                loss = torch.nn.functional.mse_loss(preds, targets)
+                losses.append(loss.item())
+
+        test_loss = float(np.mean(losses))
+        metrics = {"test_MSE": test_loss}
+        self.logger.log_dict(metrics, step=step)
+        return metrics
+
+
+    # ---------------------------------------------------------
+    # TRAIN LOOP
+    # ---------------------------------------------------------
+    def train(self, total_epochs, validation_interval, rampup_epochs: int = 10):
+        """
+        Training loop for the Mean Teacher framework:
+
+        - Supervised loss on labeled data.
+        - Consistency loss (MSE) between student & teacher predictions on unlabeled data.
+        - Teacher updated via EMA after each optimizer step.
+        - The weight of the unsupervised loss is ramped up during the first
+          `rampup_epochs` epochs to avoid enforcing consistency with a bad teacher
+          at the beginning of training.
+        """
+
+        sup_loader = self.sup_loader
+        unsup_iter = iter(self.unsup_loader)
+
+        for epoch in (pbar := tqdm(range(1, total_epochs + 1))):
+
+            self.student.train()
+            self.teacher.eval()  # teacher only used for inference
+
+            supervised_losses = []
+            unsupervised_losses = []
+
+            # --- compute epoch-dependent weight for the unsupervised loss ---
+            if epoch <= rampup_epochs:
+                lambda_u = self.unsupervised_weight * (epoch / rampup_epochs)
+            else:
+                lambda_u = self.unsupervised_weight
+
+            for x_sup, y_sup in sup_loader:
+                # Move labeled batch to device
+                x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
+
+                # Fetch unlabeled batch (cycled if necessary)
+                try:
+                    x_unsup, _ = next(unsup_iter)
+                except StopIteration:
+                    unsup_iter = iter(self.unsup_loader)
+                    x_unsup, _ = next(unsup_iter)
+                x_unsup = x_unsup.to(self.device)
+
+                self.optimizer.zero_grad()
+
+                # ----- 1) SUPERVISED LOSS (student on labeled data) -----
+                sup_preds = self.student(x_sup)
+                sup_loss = self.supervised_criterion(sup_preds, y_sup)
+                supervised_losses.append(sup_loss.item())
+
+                # ----- 2) UNSUPERVISED CONSISTENCY LOSS -----
+                with torch.no_grad():
+                    teacher_preds_u = self.teacher(x_unsup)
+
+                student_preds_u = self.student(x_unsup)
+                unsup_loss = torch.nn.functional.mse_loss(
+                    student_preds_u, teacher_preds_u
+                )
+                unsupervised_losses.append(unsup_loss.item())
+
+                # ----- 3) TOTAL LOSS WITH RAMPED UNSUPERVISED WEIGHT -----
+                loss = sup_loss + lambda_u * unsup_loss
+                loss.backward()
+                self.optimizer.step()
+
+                # ----- 4) EMA UPDATE OF TEACHER -----
+                self._ema_update_teacher()
+
+            # Learning rate scheduler step (per-epoch)
+            self.scheduler.step()
+
+            sup_mean = float(np.mean(supervised_losses)) if supervised_losses else 0.0
+            unsup_mean = float(np.mean(unsupervised_losses)) if unsupervised_losses else 0.0
+
+            metrics = {
+                "supervised_loss": sup_mean,
+                "unsupervised_mt_loss": unsup_mean,
+                "total_loss": sup_mean + lambda_u * unsup_mean,
+                "lambda_u": lambda_u,
+            }
+
+            # Validation
+            if epoch % validation_interval == 0 or epoch == total_epochs:
+                val_metrics = self.validate()
+                metrics.update(val_metrics)
+                pbar.set_postfix(metrics)
+
+            # Log everything
+            self.logger.log_dict(metrics, step=epoch)
+
