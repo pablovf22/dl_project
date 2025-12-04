@@ -57,7 +57,7 @@ python src/run.py
 You can override the default configuration by passing arguments from the command line. For example, to use a different model configuration:
 
 ```bash
-python src/run.py model=gcn
+python src/run.py model=GCN
 ```
 
 The configuration files are located in the `configs/` directory.
@@ -67,14 +67,14 @@ The configuration files are located in the `configs/` directory.
 
 The different GCN architectures are implemented as classes inside models.py.
 
-You can select each architecture using the commands below, or by modifying the gcn.yaml config file and specifying the class you want to use.
+You can select each architecture using the commands below, or by modifying the run.yaml config file and specifying the model you want to use.
 
 ```bash
-python src/run.py model=gcn
+python src/run.py model=GCN
 ```
 
 ```bash
-python src/run.py model=gcn_v2
+python src/run.py model=GCN_v2
 ```
 
 ```bash
@@ -86,7 +86,7 @@ python src/run.py model=GIN
 ```
 
 ```bash
-python src/run.py model=gcn_3
+python src/run.py model=GCN_v3
 ```
 
 
@@ -94,7 +94,7 @@ python src/run.py model=gcn_3
 
 The different training algorithms (supervised and semi-supervised) are implemented as classes inside trainer.py.
 
-You can select each training strategy using the commands below, or by modifying the corresponding YAML file inside configs/trainer/ and specifying the method you want to use.
+You can select each training strategy using the commands below, or by modifying the run.yaml and specifying the method you want to use.
 
 ```bash
 python src/run.py trainer=supervised-ensemble

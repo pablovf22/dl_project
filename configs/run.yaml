@@ -2,7 +2,7 @@ defaults:
   - dataset: qm9
   - trainer: mean-teacher-semi-supervised-ensemble
   - logger: wandb
-  - model: gcn
+  - model: GCN_v2
   - _self_
 
 
