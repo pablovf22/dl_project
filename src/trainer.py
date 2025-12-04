@@ -456,4 +456,3 @@ class MeanTeacher:
 
             # Log everything
             self.logger.log_dict(metrics, step=epoch)
-
