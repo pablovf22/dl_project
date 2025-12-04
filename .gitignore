@@ -121,3 +121,5 @@ outputs/
 data/
 
 .DS_Store
+
+do_run.sh
