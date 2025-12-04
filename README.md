@@ -110,7 +110,7 @@ python src/run.py trainer=mean-teacher-semi-supervised-ensemble
 
 ### Weights & Biases configuration
 
-To visualize training metrics and experiment results in **Weights & Biases (W&B)**, you must specify your personal W&B account in the logger configuration file:
+To visualize training metrics and experiment results in **Weights & Biases (W&B)**, you must specify your personal W&B account in the logger configuration file.
 
 Set your user account in the `entity` field:
 
