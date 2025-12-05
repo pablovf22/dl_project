@@ -12,7 +12,7 @@ init:
   _target_: trainer.MeanTeacher
   supervised_criterion:
     _target_: torch.nn.MSELoss
-  unsupervised_weight: 0.5
+  unsupervised_weight: 1
   ema_decay: 0.99
   optimizer:
     _target_: torch.optim.AdamW

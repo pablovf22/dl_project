@@ -147,7 +147,6 @@ class SupervisedEnsemble:
 
         return metrics
 
-
 class CPSEnsemble:
     def __init__(
         self,
@@ -158,39 +157,38 @@ class CPSEnsemble:
         device,
         models,
         logger,
-        datamodule
+        datamodule,
     ):
         self.device = device
         self.jp_history = []
 
-        # If there is only one model, create anotherone from this
+        # If there is only one model, create a second one from it (slightly perturbed)
         if len(models) == 1:
             m1 = models[0]
             m2 = deepcopy(m1)
 
-            # Add noise to the second model to have two different initial models
             for p in m2.parameters():
                 if p.requires_grad:
                     p.data.add_(0.01 * torch.randn_like(p))
 
             self.models = [m1, m2]
         else:
-            # In case there are two models
             self.models = models
 
+        # Losses and weights
         self.supervised_criterion = supervised_criterion
         self.unsupervised_weight = unsupervised_weight
 
-        # Optim + scheduler for all the models
+        # Optimizer and scheduler over all model parameters
         all_params = [p for m in self.models for p in m.parameters()]
         self.optimizer = optimizer(params=all_params)
         self.scheduler = scheduler(optimizer=self.optimizer)
 
-        # Loaders
-        self.sup_loader = datamodule.train_dataloader()
-        self.unsup_loader = datamodule.unsupervised_train_dataloader()
-        self.val_loader = datamodule.val_dataloader()
-        self.test_loader = datamodule.test_dataloader()
+        # Dataloaders: usa SIEMPRE estos nombres
+        self.train_dataloader = datamodule.train_dataloader()
+        self.unsupervised_train_dataloader = datamodule.unsupervised_train_dataloader()
+        self.val_dataloader = datamodule.val_dataloader()
+        self.test_dataloader = datamodule.test_dataloader()
 
         # Logger (W&B)
         self.logger = logger
@@ -201,7 +199,7 @@ class CPSEnsemble:
 
         val_losses = []
         with torch.no_grad():
-            for x, targets in self.val_loader:
+            for x, targets in self.val_dataloader:
                 x, targets = x.to(self.device), targets.to(self.device)
                 preds = [model(x) for model in self.models]
                 avg_preds = torch.stack(preds).mean(0)
@@ -210,18 +208,16 @@ class CPSEnsemble:
 
         return {"val_MSE": float(np.mean(val_losses))}
 
-
     def train(self, total_epochs, validation_interval):
         """
         Training loop for Cross Pseudo-Supervision (CPS).
 
         - Supervised loss on labeled data for both models.
         - Unsupervised CPS loss on unlabeled data:
-            each model is trained to match the other's prediction.
+          each model is trained to match the other's prediction.
         - At the end of training, a per-epoch history is saved to jp_data/
           for plotting in a Jupyter notebook.
         """
-        # Reset history for this run
         self.jp_history = []
 
         sup_loader = self.train_dataloader
@@ -238,7 +234,7 @@ class CPSEnsemble:
             for x_sup, y_sup in sup_loader:
                 x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
 
-                # Fetch unlabeled batch (cycled if necessary)
+                # Get a batch of unlabeled data (cycle iterator if exhausted)
                 try:
                     x_unsup, _ = next(unsup_iter)
                 except StopIteration:
@@ -249,7 +245,6 @@ class CPSEnsemble:
                 self.optimizer.zero_grad()
 
                 # ----- 1) SUPERVISED LOSS -----
-                # Supervised loss for each model on labeled data
                 sup_losses_models = [
                     self.supervised_criterion(model(x_sup), y_sup)
                     for model in self.models
@@ -258,18 +253,14 @@ class CPSEnsemble:
                 supervised_losses.append(sup_loss.item() / len(self.models))
 
                 # ----- 2) CPS UNSUPERVISED LOSS -----
-                # Each model acts as teacher for the other on unlabeled data
                 preds_unsup = [model(x_unsup) for model in self.models]
 
-                # Model 0 matches model 1 (detach)
                 loss_0 = torch.nn.functional.mse_loss(
                     preds_unsup[0], preds_unsup[1].detach()
                 )
-                # Model 1 matches model 0 (detach)
                 loss_1 = torch.nn.functional.mse_loss(
                     preds_unsup[1], preds_unsup[0].detach()
                 )
-
                 cps_loss = 0.5 * (loss_0 + loss_1)
                 unsupervised_losses.append(cps_loss.item())
 
@@ -278,10 +269,9 @@ class CPSEnsemble:
                 loss.backward()
                 self.optimizer.step()
 
-            # Scheduler step at end of epoch
+            # Scheduler step
             self.scheduler.step()
 
-            # Aggregate epoch stats
             sup_mean = float(np.mean(supervised_losses)) if supervised_losses else 0.0
             unsup_mean = float(np.mean(unsupervised_losses)) if unsupervised_losses else 0.0
 
@@ -291,22 +281,19 @@ class CPSEnsemble:
                 "total_loss": sup_mean + self.unsupervised_weight * unsup_mean,
             }
 
-            # Validation
             if epoch % validation_interval == 0 or epoch == total_epochs:
                 val_metrics = self.validate()
                 summary_dict.update(val_metrics)
                 pbar.set_postfix(summary_dict)
 
-            # Log to W&B
             self.logger.log_dict(summary_dict, step=epoch)
 
-            # Save epoch record for Jupyter
             epoch_record = {"epoch": epoch}
             epoch_record.update(summary_dict)
             self.jp_history.append(epoch_record)
 
-        # Save full history to jp_data/ for notebook plotting
         save_jp_history(self.jp_history, method_name="cps_ensemble")
+
 
 
 class MeanTeacher:
