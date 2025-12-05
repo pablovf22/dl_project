@@ -2,7 +2,7 @@ defaults:
   - dataset: qm9
   - trainer: supervised-ensemble
   - logger: wandb
-  - model: GCN_v2
+  - model: GCN_v3
   - _self_
 
 
