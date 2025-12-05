@@ -3,10 +3,9 @@ from functools import partial
 import numpy as np
 import torch
 from tqdm import tqdm
-from torch_geometric.data import Batch
-from torch.nn import functional as F
+from copy import deepcopy
 
-class SemiSupervisedEnsemble:
+class SupervisedEnsemble:
     def __init__(
         self,
         supervised_criterion,
@@ -28,7 +27,6 @@ class SemiSupervisedEnsemble:
 
         # Dataloader setup
         self.train_dataloader = datamodule.train_dataloader()
-        self.unsup_dataloader = datamodule.unsupervised_train_dataloader() #Load UNsupervised data
         self.val_dataloader = datamodule.val_dataloader()
         self.test_dataloader = datamodule.test_dataloader()
 
@@ -55,66 +53,231 @@ class SemiSupervisedEnsemble:
         return {"val_MSE": val_loss}
 
     def train(self, total_epochs, validation_interval):
-        unsup_iterator = iter(self.unsup_dataloader)
         #self.logger.log_dict()
         for epoch in (pbar := tqdm(range(1, total_epochs + 1))):
             for model in self.models:
                 model.train()
             supervised_losses_logged = []
-            cps_losses_logged = []
             for x, targets in self.train_dataloader:
                 x, targets = x.to(self.device), targets.to(self.device)
-
-                try:
-                    unsup_batch = next(unsup_iterator)
-                except StopIteration:
-                    unsup_iterator = iter(self.unsup_dataloader)
-                    unsup_batch = next(unsup_iterator)
-
-
-                #print("DEBUG unsup_batch type:", type(unsup_batch))
-                #print("DEBUG first element type:", type(unsup_batch[0]))
-                #print("DEBUG batch element keys:", 
-                 #       unsup_batch[0].__dict__.keys() if hasattr(unsup_batch[0], "__dict__") else "NO ATTRIBUTES")
-                if isinstance(unsup_batch, list):
-                    unsup_batch = unsup_batch[0].to(self.device)
-                else:
-                    unsup_batch = unsup_batch.to(self.device)
-
                 self.optimizer.zero_grad()
-
                 # Supervised loss
                 supervised_losses = [self.supervised_criterion(model(x), targets) for model in self.models]
                 supervised_loss = sum(supervised_losses)
-
-
-                # CPS loss: model A uses model B's pseudo-labels and vice versa
-                pred_A = self.models[0](unsup_batch)
-                pred_B = self.models[1](unsup_batch)
-
-                pseudo_labels_B = torch.softmax(pred_B.detach(), dim=-1) #Softmax for probability distribution
-                pseudo_labels_A = torch.softmax(pred_A.detach(), dim=-1)
-
-                cps_loss_A = F.cross_entropy(pred_A, pseudo_labels_B.argmax(dim=-1)) #Cross entropy with pseudo-labels (Pred A with Pseudo-labels from B)
-                cps_loss_B = F.cross_entropy(pred_B, pseudo_labels_A.argmax(dim=-1))
-
-                cps_loss = (cps_loss_A + cps_loss_B) / 2 #Compute avg CPS loss
-
-                loss = supervised_loss + cps_loss #Compute total loss
-                loss.backward() #Backpropagate
-                self.optimizer.step()
-
                 supervised_losses_logged.append(supervised_loss.detach().item() / len(self.models))  # type: ignore
-                cps_losses_logged.append(cps_loss.detach().item())
-            
+                loss = supervised_loss
+                loss.backward()  # type: ignore
+                self.optimizer.step()
             self.scheduler.step()
+            supervised_losses_logged = np.mean(supervised_losses_logged)
+
             summary_dict = {
                 "supervised_loss": supervised_losses_logged,
-                "cps_loss": cps_losses_logged,
             }
             if epoch % validation_interval == 0 or epoch == total_epochs:
                 val_metrics = self.validate()
                 summary_dict.update(val_metrics)
                 pbar.set_postfix(summary_dict)
-                
             self.logger.log_dict(summary_dict, step=epoch)
+
+
+    def test(self, step: int | None = None):
+        """Evalúa el ensemble en el test set y lo registra en W&B."""
+        for model in self.models:
+            model.eval()
+
+        test_losses = []
+
+        with torch.no_grad():
+            for x, targets in self.test_dataloader:
+                x, targets = x.to(self.device), targets.to(self.device)
+
+                preds = [model(x) for model in self.models]
+                avg_preds = torch.stack(preds).mean(0)
+
+                loss = torch.nn.functional.mse_loss(avg_preds, targets)
+                test_losses.append(loss.item())
+
+        test_loss = float(np.mean(test_losses))
+        metrics = {"test_MSE": test_loss}
+
+        # Esto crea el punto de test_MSE en W&B
+        self.logger.log_dict(metrics, step=step)
+
+        return metrics
+
+
+class CPSEnsemble:
+    def __init__(
+        self,
+        supervised_criterion,
+        unsupervised_weight,
+        ramped_lambda,
+        base_lambda,
+        warmup_epochs,
+        optimizer,
+        scheduler,
+        device,
+        models,
+        logger,
+        datamodule,
+    ):
+        self.device = device
+
+        # If there is only one model, create anotherone from this
+        if len(models) == 1:
+            m1 = models[0]
+            m2 = deepcopy(m1)
+
+            # Add noise to the second model to have two different initial models
+            for p in m2.parameters():
+                if p.requires_grad:
+                    p.data.add_(0.3 * torch.randn_like(p))
+
+            self.models = [m1, m2]
+            print("[INFO] Only one model provided. Created a second model by duplicating and adding noise.")
+        
+        else:
+            # In case there are two models
+            self.models = models
+            print("[INFO] Two models provided. Initializing CPS Ensemble with them.")
+
+        self.supervised_criterion = supervised_criterion
+        self.unsupervised_weight = unsupervised_weight
+        self.ramped_lambda = ramped_lambda
+        self.base_lambda = base_lambda
+        self.warmup_epochs = warmup_epochs
+
+        # Optim + scheduler for all the models
+        all_params = [p for m in self.models for p in m.parameters()]
+        self.optimizer = optimizer(params=all_params)
+        self.scheduler = scheduler(optimizer=self.optimizer)
+
+        # Loaders
+        self.sup_loader = datamodule.train_dataloader()
+        self.unsup_loader = datamodule.unsupervised_train_dataloader()
+        self.val_loader = datamodule.val_dataloader()
+        self.test_loader = datamodule.test_dataloader()
+
+        # Logger (W&B)
+        self.logger = logger
+
+    def validate(self):
+        for model in self.models:
+            model.eval()
+
+        val_losses = []
+        with torch.no_grad():
+            for x, targets in self.val_loader:
+                x, targets = x.to(self.device), targets.to(self.device)
+                preds = [model(x) for model in self.models]
+                avg_preds = torch.stack(preds).mean(0)
+                loss = torch.nn.functional.mse_loss(avg_preds, targets)
+                val_losses.append(loss.item())
+
+        return {"val_MSE": float(np.mean(val_losses))}
+
+    def train(self, total_epochs, validation_interval):
+        unsup_iter = iter(self.unsup_loader)
+        
+        print("[DEBUG] CPSEnsemble init args:")
+        print(" unsup_weight:", self.unsupervised_weight)
+        print(" ramped_lambda:", self.ramped_lambda)
+        print(" base_lambda:", self.base_lambda)
+        print(" warmup_epochs:", self.warmup_epochs)
+
+
+        if self.ramped_lambda:
+            print(f"[INFO] Ramped CPS Lambda enabled with base lambda: {self.base_lambda} and warmup epochs: {self.warmup_epochs}")
+
+        for epoch in (pbar := tqdm(range(1, total_epochs + 1))):
+            if self.ramped_lambda:
+                self.unsupervised_weight = min(1.0, epoch / self.warmup_epochs) * self.base_lambda
+
+            for model in self.models:
+                model.train()
+
+            sup_list = []
+            unsup_list = []
+
+            for x_sup, y_sup in self.sup_loader:
+                x_sup, y_sup = x_sup.to(self.device), y_sup.to(self.device)
+
+                # Non-labelled Batch
+                try:
+                    x_unsup, _ = next(unsup_iter)
+                except StopIteration:
+                    unsup_iter = iter(self.unsup_loader)
+                    x_unsup, _ = next(unsup_iter)
+                x_unsup = x_unsup.to(self.device)
+
+                self.optimizer.zero_grad()
+
+                # Supervised Loss
+                sup_losses = [
+                    self.supervised_criterion(m(x_sup), y_sup)
+                    for m in self.models
+                ]
+                sup_loss = sum(sup_losses) / len(self.models)
+                sup_list.append(sup_loss.item())
+
+                # Cross Pseudo Supervision
+                m1, m2 = self.models[0], self.models[1]
+
+                p1 = m1(x_unsup)
+                p2 = m2(x_unsup)
+
+                loss_u1 = torch.nn.functional.mse_loss(p1, p2.detach())
+                loss_u2 = torch.nn.functional.mse_loss(p2, p1.detach())
+                cps_loss = 0.5 * (loss_u1 + loss_u2)
+
+                unsup_list.append(cps_loss.item())
+
+                # Total Loss
+                loss = sup_loss + self.unsupervised_weight * cps_loss
+                loss.backward()
+                self.optimizer.step()
+
+            self.scheduler.step()
+
+            sup_mean = float(np.mean(sup_list))
+            unsup_mean = float(np.mean(unsup_list))
+
+            summary = {
+                "supervised_loss": sup_mean,
+                "unsupervised_cps_loss": unsup_mean,
+                "total_loss": sup_mean + self.unsupervised_weight * unsup_mean,
+            }
+
+            if epoch % validation_interval == 0 or epoch == total_epochs:
+                summary.update(self.validate())
+                pbar.set_postfix(summary)
+
+            self.logger.log_dict(summary, step=epoch)
+
+    
+    def test(self, step: int | None = None):
+       
+        for model in self.models:
+            model.eval()
+
+        test_losses = []
+
+        with torch.no_grad():
+            for x, targets in self.test_loader:
+                x, targets = x.to(self.device), targets.to(self.device)
+
+                # Prediction of the ensemble
+                preds = [model(x) for model in self.models]
+                avg_preds = torch.stack(preds).mean(0)
+
+                loss = torch.nn.functional.mse_loss(avg_preds, targets)
+                test_losses.append(loss.item())
+
+        test_loss = float(np.mean(test_losses))
+        metrics = {"test_MSE": test_loss}
+
+        # Result to W&B
+        self.logger.log_dict(metrics, step=step)
+
+        return metrics

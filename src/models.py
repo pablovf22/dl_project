@@ -31,7 +31,7 @@ class GCN_v2(torch.nn.Module):
     def __init__(self, num_node_features, hidden_channels=128, dropout=0.05):
         super(GCN_v2, self).__init__()
 
-        # Capas GCN
+        # GCN Layers
         self.conv1 = GCNConv(num_node_features, hidden_channels)
         self.bn1 = torch.nn.BatchNorm1d(hidden_channels)
 
@@ -41,7 +41,7 @@ class GCN_v2(torch.nn.Module):
         self.conv3 = GCNConv(hidden_channels, hidden_channels)
         self.bn3 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # Cabeza MLP final
+        # Final MLP
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -52,7 +52,7 @@ class GCN_v2(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
-        # 1. Capas GCN + BatchNorm + ReLU
+        # 1. GCN Layers + BatchNorm + ReLU
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.relu(x)
@@ -65,10 +65,10 @@ class GCN_v2(torch.nn.Module):
         x = self.bn3(x)
         x = F.relu(x)
 
-        # 2. Readout: pooling por suma
+        # 2. Readout: sum pooling
         x = global_add_pool(x, batch)  # [batch_size, hidden_channels]
 
-        # 3. Cabeza MLP final
+        # 3. Final MLP
         x = self.mlp(x)  # [batch_size, 1]
 
         return x
@@ -78,7 +78,7 @@ class GraphSAGE(torch.nn.Module):
     def __init__(self, num_node_features, hidden_channels=128, dropout=0.05):
         super(GraphSAGE, self).__init__()
 
-        # Capas SAGEConv
+        # SAGEConv Layers
         self.conv1 = SAGEConv(num_node_features, hidden_channels)
         self.bn1 = torch.nn.BatchNorm1d(hidden_channels)
 
@@ -88,7 +88,7 @@ class GraphSAGE(torch.nn.Module):
         self.conv3 = SAGEConv(hidden_channels, hidden_channels)
         self.bn3 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # Cabeza MLP final
+        # Final MLP
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -99,7 +99,7 @@ class GraphSAGE(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
-        # Capas SAGE + BatchNorm + ReLU
+        # SAGE Layers + BatchNorm + ReLU
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.relu(x)
@@ -112,10 +112,10 @@ class GraphSAGE(torch.nn.Module):
         x = self.bn3(x)
         x = F.relu(x)
 
-        # Pooling por suma
+        # Sum Pooling
         x = global_add_pool(x, batch)  # [batch_size, hidden_channels]
 
-        # Cabeza MLP final
+        # Final MLP
         x = self.mlp(x)  # [batch_size, 1]
 
         return x
@@ -125,7 +125,7 @@ class GIN(torch.nn.Module):
     def __init__(self, num_node_features, hidden_channels=128, dropout=0.05):
         super(GIN, self).__init__()
 
-        # MLP para la primera capa (num_node_features → hidden)
+        # MLP first layer(num_node_features → hidden)
         mlp1 = torch.nn.Sequential(
             torch.nn.Linear(num_node_features, hidden_channels),
             torch.nn.ReLU(),
@@ -134,7 +134,7 @@ class GIN(torch.nn.Module):
         self.conv1 = GINConv(mlp1)
         self.bn1 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # MLP para la segunda capa (hidden → hidden)
+        # MLP second layer (hidden → hidden)
         mlp2 = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -143,7 +143,7 @@ class GIN(torch.nn.Module):
         self.conv2 = GINConv(mlp2)
         self.bn2 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # MLP para la tercera capa (hidden → hidden)
+        # MLP third layer (hidden → hidden)
         mlp3 = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -152,7 +152,7 @@ class GIN(torch.nn.Module):
         self.conv3 = GINConv(mlp3)
         self.bn3 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # Cabeza MLP final
+        # Final MLP
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -163,7 +163,7 @@ class GIN(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
-        # Capas GIN + BatchNorm + ReLU
+        # GIN Layers + BatchNorm + ReLU
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.relu(x)
@@ -176,10 +176,10 @@ class GIN(torch.nn.Module):
         x = self.bn3(x)
         x = F.relu(x)
 
-        # Pooling por suma
+        # Sum Pooling
         x = global_add_pool(x, batch)  # [batch_size, hidden_channels]
 
-        # Cabeza MLP final
+        # Final MLP
         x = self.mlp(x)  # [batch_size, 1]
 
         return x
@@ -189,7 +189,7 @@ class GCN_v3(torch.nn.Module):
     def __init__(self, num_node_features, hidden_channels=128, dropout=0.05):
         super(GCN_v3, self).__init__()
 
-        # Capas GCN
+        # GCN Layers
         self.conv1 = GCNConv(num_node_features, hidden_channels)
         self.bn1 = torch.nn.BatchNorm1d(hidden_channels)
 
@@ -199,10 +199,10 @@ class GCN_v3(torch.nn.Module):
         self.conv3 = GCNConv(hidden_channels, hidden_channels)
         self.bn3 = torch.nn.BatchNorm1d(hidden_channels)
 
-        # Dropout interno
+        # Dropout
         self.dropout = torch.nn.Dropout(dropout)
 
-        # Cabeza MLP final: entrada 2 * hidden (sum + mean pool concatenados)
+        # Final MLP
         self.mlp = torch.nn.Sequential(
             torch.nn.Linear(2 * hidden_channels, hidden_channels),
             torch.nn.ReLU(),
@@ -213,13 +213,13 @@ class GCN_v3(torch.nn.Module):
     def forward(self, data):
         x, edge_index, batch = data.x, data.edge_index, data.batch
 
-        # Primera capa (sin residual previo)
+        # First Layer
         x = self.conv1(x, edge_index)
         x = self.bn1(x)
         x = F.relu(x)
         x = self.dropout(x)
 
-        # Segunda capa con skip connection
+        # Second Layer
         res = x
         x = self.conv2(x, edge_index)
         x = self.bn2(x)
@@ -227,7 +227,7 @@ class GCN_v3(torch.nn.Module):
         x = self.dropout(x)
         x = x + res  # residual
 
-        # Tercera capa con skip connection
+        # Third Layer
         res = x
         x = self.conv3(x, edge_index)
         x = self.bn3(x)
@@ -235,12 +235,12 @@ class GCN_v3(torch.nn.Module):
         x = self.dropout(x)
         x = x + res  # residual
 
-        # Pooling: suma y media, y los concatenamos
+        # Pooling: sum and mean
         x_sum = global_add_pool(x, batch)       # [batch_size, hidden]
         x_mean = global_mean_pool(x, batch)     # [batch_size, hidden]
         x = torch.cat([x_sum, x_mean], dim=-1)  # [batch_size, 2 * hidden]
 
-        # Cabeza MLP
+        # Final MLP
         x = self.mlp(x)  # [batch_size, 1]
 
         return x

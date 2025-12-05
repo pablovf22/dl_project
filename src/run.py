@@ -3,7 +3,7 @@ from itertools import chain
 import hydra
 import torch
 from omegaconf import OmegaConf
-from model_utils import prepare_model
+
 from utils import seed_everything
 
 
@@ -31,21 +31,19 @@ def main(cfg):
 
     #model = hydra.utils.instantiate(cfg.model.init).to(device)
 
-   # model = prepare_model(
-    #model_arch=cfg.model,
-    #device=device,
-    #num_models=cfg.model.init.num_models,
-    #compile_model=cfg.compile_model
-#)
     if cfg.compile_model:
         model = torch.compile(model)
+    
     models = [
     hydra.utils.instantiate(cfg.model.init).to(device),
-    hydra.utils.instantiate(cfg.model.init).to(device),]
+    hydra.utils.instantiate(cfg.model.init).to(device)]
+
     trainer = hydra.utils.instantiate(cfg.trainer.init, models=models, logger=logger, datamodule=dm, device=device)
 
     results = trainer.train(**cfg.trainer.train)
-#    results = torch.Tensor(results)
+    test_metrics = trainer.test(step=cfg.trainer.train.total_epochs)
+    print(f"Test MSE: {test_metrics['test_MSE']:.4f}")
+   
 
 
 

@@ -6,11 +6,21 @@ method: semi-supervised-ensemble
 train:
   total_epochs: 250
   validation_interval: 10
+  
+num_models: 2  #If num_models = 2,  2 models are initialized, if num_models = 1, 1 model is initialized and noise is added to the input for semi-supervised learning.
+
+
+
+
+
+
+ 
 
 init:
-  _target_: trainer.SemiSupervisedEnsemble
+  _target_: trainer.CPSEnsemble
   supervised_criterion:
     _target_: torch.nn.MSELoss
+  unsupervised_weight: 0.5
   optimizer:
     _target_: torch.optim.AdamW
     _partial_: true
@@ -20,3 +30,6 @@ init:
     _target_: torch.optim.lr_scheduler.CosineAnnealingLR
     _partial_: true
     T_max: 250
+  ramped_lambda: true
+  base_lambda: 0.8
+  warmup_epochs: 200
