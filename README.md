@@ -5,9 +5,9 @@
 
 This repository contains a modular framework for training **Graph Neural Networks (GNNs)** on the **QM9 molecular dataset**, supporting both **supervised** and **semi-supervised** learning. The primary objective is to evaluate how leveraging unlabeled data can improve predictive performance when only a small subset of labeled molecules is available.
 
-We begin by training a fully supervised GCN baseline, followed by the implementation of multiple GNN architectures, hyperparameter optimization, and two semi-supervised algorithms: **Cross Pseudo-Supervision (CPS)** and **Mean Teacher (MT)**.  
+We begin by implementing a fully supervised GCN baseline, followed by the implementation of multiple GNN architectures and two semi-supervised algorithms: **Cross Pseudo-Supervision (CPS)** and **Mean Teacher (MT)**.  
 
-The codebase supports seamless switching between learning strategies and architectures, allowing researchers and students to reproduce experiments, compare models, and extend the framework easily.
+The codebase supports seamless switching between learning strategies and architectures, allowing to reproduce experiments, compare models and extend the framework easily.
 
 Experiment management is handled with **Hydra** and all metrics are logged to **Weights & Biases**.
 
