@@ -1,4 +1,4 @@
-# GNN and semi-supervised learning for molecular property prediction - Group 98
+# GNN and semi-supervised learning for molecular property prediction
 
 
 ## Project Overview
